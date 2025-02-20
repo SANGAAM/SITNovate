@@ -37,14 +37,9 @@ app.add_middleware(
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Initialize the Groq clients.
-# Technical Interview Groq Client
-TECH_GROQ_API_KEY = "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"
-groq_client = Groq(api_key=TECH_GROQ_API_KEY)
-
-# HR Interview Groq Client
-HR_GROQ_API_KEY = "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"
-hr_groq_client = Groq(api_key=HR_GROQ_API_KEY)
+# Initialize the Groq client.
+GROQ_API_KEY = "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"
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # -----------------------
 # In-Memory "Database"
@@ -52,12 +47,11 @@ hr_groq_client = Groq(api_key=HR_GROQ_API_KEY)
 # Users: username -> { "username": ..., "email": ..., "hashed_password": ... }
 users = {}
 # Conversation histories and TTS streams stored per user:
-# For each user, store separate conversation histories for technical and HR rounds.
-user_conversations = {}  # username -> {"technical": [...], "hr": [...]}
+user_conversations = {}  # username -> list of messages
 user_streams = {}        # username -> TTS stream instance
 
-# System prompts for the interviews
-technical_prompt = """
+# System prompt for the interview
+system_prompt = """
 You are an interviewer at a software company.
 Ask the candidate 5 short, unique technical questions about topics like OOPs, DBMS, and DSA.
 After each question, wait for the candidate's answer before asking the next question.
@@ -66,15 +60,6 @@ At the end, evaluate the candidate's answers and give clear, constructive feedba
 Keep your language plain and natural, without bullet points, asterisks, or any special characters.
 Speak as naturally as possible so that the converted speech sounds human.
 Avoid repeating the same questions in different sessions. Always vary the questions.
-"""
-
-hr_prompt = """
-You are an HR interviewer at a company.
-Ask the candidate 5 short behavioral questions focusing on interpersonal skills, teamwork, and cultural fit.
-After each question, wait for the candidate's response before asking the next question.
-Keep your tone friendly, empathetic, and professional.
-At the end, provide concise feedback on the candidate's soft skills and overall fit.
-Avoid bullet points, asterisks, or special formatting.
 """
 
 # -----------------------
@@ -126,7 +111,6 @@ class UserLogin(BaseModel):
 
 class QueryRequest(BaseModel):
     text: str
-    round: str = "technical"  # can be "technical" or "hr"
     stop_audio: bool = False
 
 # -----------------------
@@ -177,9 +161,9 @@ async def stop_audio(current_user: dict = Depends(get_current_user)):
 def generate_speech_async(text: str, username: str):
     if username not in user_streams:
         tts_engine = EdgeEngine()
-        tts_engine.set_voice("en-GB-RyanNeural")
-        tts_engine.rate = 10
-        tts_engine.pitch = -26
+        tts_engine.set_voice("en-IN-PrabhatNeural")
+        # tts_engine.rate = 10
+        # tts_engine.pitch = -26
         user_streams[username] = TextToAudioStream(tts_engine)
     stream = user_streams[username]
     stream.feed(text)
@@ -196,26 +180,15 @@ async def query(
     current_user: dict = Depends(get_current_user)
 ):
     username = current_user["username"]
-    # Initialize conversation histories for both rounds if not already present.
     if username not in user_conversations:
-        user_conversations[username] = {
-            "technical": [{"role": "system", "content": technical_prompt}],
-            "hr": [{"role": "system", "content": hr_prompt}],
-        }
-    round_type = request.round if request.round in ["technical", "hr"] else "technical"
-    conversation_history = user_conversations[username][round_type]
+        user_conversations[username] = [{"role": "system", "content": system_prompt}]
+    conversation_history = user_conversations[username]
     conversation_history.append({"role": "user", "content": request.text})
     try:
-        if round_type == "technical":
-            chat_completion = groq_client.chat.completions.create(
-                messages=conversation_history,
-                model="llama-3.3-70b-versatile",
-            )
-        else:  # HR round
-            chat_completion = hr_groq_client.chat.completions.create(
-                messages=conversation_history,
-                model="llama-3.3-70b-versatile",
-            )
+        chat_completion = groq_client.chat.completions.create(
+            messages=conversation_history,
+            model="llama-3.3-70b-versatile",
+        )
         response_text = chat_completion.choices[0].message.content.strip()
         conversation_history.append({"role": "assistant", "content": response_text})
         background_tasks.add_task(generate_speech_async, response_text, username)

@@ -32,35 +32,47 @@ Direction = [
 # ---------------------------
 # YouTube & Learning Functions
 # ---------------------------
-def search_youtube_videos(query: str, num_videos: int = 7):
-    """
-    Searches YouTube for videos matching the query and returns a list of video links.
-    """
-    video_search = VideosSearch(query, limit=num_videos)
-    videos_data = video_search.result()
-    video_links = [item.get("link") for item in videos_data.get("result", [])]
-    return video_links
-
 def search_youtube_playlists(query: str, num_playlists: int = 3):
-    """
-    Searches YouTube for playlists related to the query.
-    It builds a search URL with a filter (sp=EgIQAw%3D%3D) that restricts results to playlists,
-    then uses regex to extract playlist IDs and returns their URLs.
-    """
     query_string = query.replace(" ", "+")
     url = f"https://www.youtube.com/results?search_query={query_string}&sp=EgIQAw%3D%3D"
     html = request.get(url)
-    # Find all occurrences of "playlistId":"someID"
     playlist_ids = re.findall(r'"playlistId":"(.*?)"', html)
-    # Remove duplicates and limit results
     unique_ids = []
     for pid in playlist_ids:
         if pid not in unique_ids:
             unique_ids.append(pid)
         if len(unique_ids) == num_playlists:
             break
-    playlist_urls = [f"https://www.youtube.com/playlist?list={pid}" for pid in unique_ids]
-    return playlist_urls
+    playlists = []
+    for pid in unique_ids:
+        playlist_url = f"https://www.youtube.com/playlist?list={pid}"
+        playlist_html = request.get(playlist_url)
+        playlist_soup = BeautifulSoup(playlist_html, 'html.parser')
+        # Extract title from the <title> tag
+        title_tag = playlist_soup.find('title')
+        title = title_tag.get_text().replace(" - YouTube", "").strip() if title_tag else "Playlist"
+        # Extract thumbnail from the og:image meta tag
+        thumbnail_meta = playlist_soup.find('meta', property="og:image")
+        thumbnail = thumbnail_meta.get("content") if thumbnail_meta else ""
+        playlists.append({
+            "link": playlist_url,
+            "title": title,
+            "thumbnail": thumbnail
+        })
+    return playlists
+
+
+def search_youtube_videos(query: str, num_videos: int = 7):
+    video_search = VideosSearch(query, limit=num_videos)
+    videos_data = video_search.result()
+    videos = []
+    for item in videos_data.get("result", []):
+        videos.append({
+            "link": item.get("link"),
+            "title": item.get("title"),
+            "thumbnail": item.get("thumbnails")[0].get("url") if item.get("thumbnails") and len(item.get("thumbnails")) > 0 else ""
+        })
+    return videos
 
 def search_learning_websites(query: str, num_links: int = 5):
     return list(search(query, num_results=num_links))
@@ -105,23 +117,18 @@ def get_resources(data: Dict[str, str]):
     if not user_query:
         raise HTTPException(status_code=400, detail="Query is required")
     
-    # Get a short AI-generated summary/preparation hint using Groq
     groq_response = query_groq(user_query)
-    # Get YouTube video and playlist links using our functions
-    video_links = search_youtube_videos(user_query)
-    playlist_links = search_youtube_playlists(user_query, num_playlists=3)
-    # Get learning resource website links
+    videos = search_youtube_videos(user_query)
+    playlists = search_youtube_playlists(user_query, num_playlists=3)
     learning_links = search_learning_websites(user_query, num_links=5)
 
-    for links in learning_links:
-        print(links)
-    
     return {
         "groq_response": groq_response,
-        "video_links": video_links,
-        "playlist_links": playlist_links,
+        "videos": videos,
+        "playlists": playlists,
         "learning_resources": learning_links
     }
+
 
 if __name__ == "__main__":
     import uvicorn

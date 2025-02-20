@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+googlesearch-python
+youtube-search-python
+pytube
+beautifulsoup4
+groq
+httpx==22.0.5
