@@ -102,9 +102,8 @@ const CodeEditor = () => {
     }
     setSessionId(storedSessionId);
   }, []);
-  
-  // Gemini API configuration (Replace with your own API key)
-  const GEMINI_API_KEY = "AIzaSyAeRbWgIu_IArn8_M-VvJn9ZMPaIWnrUeY"; 
+ 
+  const GEMINI_API_KEY = Process.env.GEMINI_API_KEY; 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash-exp",
